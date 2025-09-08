@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/client"
+import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
 
 export interface ResultsPublicationStatus {
   arePublished: boolean
@@ -8,6 +8,16 @@ export interface ResultsPublicationStatus {
 }
 
 export async function getResultsPublicationStatus(): Promise<ResultsPublicationStatus> {
+  if (!isSupabaseConfigured()) {
+    console.log("[v0] Supabase not configured, returning default results status")
+    return {
+      arePublished: false,
+      publishedAt: null,
+      scheduledFor: null,
+      isScheduled: false,
+    }
+  }
+
   const supabase = createClient()
 
   try {
@@ -55,6 +65,11 @@ export async function getResultsPublicationStatus(): Promise<ResultsPublicationS
 }
 
 export async function checkAndUpdateScheduledPublication(): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    console.log("[v0] Supabase not configured, skipping scheduled publication check")
+    return
+  }
+
   const supabase = createClient()
 
   try {

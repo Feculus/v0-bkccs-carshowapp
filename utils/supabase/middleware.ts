@@ -20,7 +20,16 @@ export const updateSession = async (request: NextRequest) => {
     supabaseUrl === "https://placeholder.supabase.co" ||
     supabaseKey === "placeholder-key"
   ) {
-    console.error("Missing or invalid Supabase environment variables")
+    console.warn("[v0] Middleware: Supabase environment variables not configured, skipping auth checks")
+
+    if (request.nextUrl.pathname.startsWith("/admin") && !request.nextUrl.pathname.startsWith("/admin/login")) {
+      console.log("[v0] Middleware: Admin route accessed without Supabase config, redirecting to login")
+      const url = request.nextUrl.clone()
+      url.pathname = "/admin/login"
+      url.searchParams.set("error", "supabase_not_configured")
+      return NextResponse.redirect(url)
+    }
+
     return supabaseResponse
   }
 

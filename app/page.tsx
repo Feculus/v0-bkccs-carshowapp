@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { createClient } from "@/utils/supabase/client"
+import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
 import type { Vehicle } from "@/lib/types"
 import { Car, Users, Trophy, EyeOff, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,15 +14,20 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [resultsPublished, setResultsPublished] = useState(false)
   const [publicationStatus, setPublicationStatus] = useState<any>(null)
+  const [supabaseConfigured, setSupabaseConfigured] = useState(false)
   const glideRef = useRef<HTMLDivElement>(null)
   const glideInstance = useRef<any>(null)
 
   useEffect(() => {
-    checkResultsStatus()
+    setSupabaseConfigured(isSupabaseConfigured())
 
-    // Check every 60 seconds for publication status updates
-    const interval = setInterval(checkResultsStatus, 60000)
-    return () => clearInterval(interval)
+    if (isSupabaseConfigured()) {
+      checkResultsStatus()
+      const interval = setInterval(checkResultsStatus, 60000)
+      return () => clearInterval(interval)
+    } else {
+      console.log("[v0] Supabase not configured, skipping results status check")
+    }
   }, [])
 
   const checkResultsStatus = async () => {
@@ -36,111 +41,16 @@ export default function HomePage() {
     }
   }
 
-  // Define sponsors array
-  const sponsors = [
-    {
-      src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/Landcar-Heritage-Black-White-Box-White-Type.png",
-      alt: "Land Cruiser Heritage Museum",
-      url: "https://landcruiserhm.com/",
-    },
-    {
-      src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/Wasatch_Cruisers_Utah.png",
-      alt: "Wasatch Cruisers Utah",
-      url: "https://forum.wasatchcruisers.org/",
-    },
-    {
-      src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/CruiserOutfitters-3x4.png",
-      alt: "Cruiser Outfitters",
-      url: "https://cruiserteq.com/",
-    },
-    {
-      src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/ABC_3division.vector.png",
-      alt: "ABC 3 Division",
-      url: "https://www.abc-concrete.com/",
-    },
-    {
-      src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/OEX_LOGO_resized.png",
-      alt: "OEX",
-      url: "https://www.overlandexperts.com/",
-    },
-    {
-      src: "/images/sponsors/4x4Engineering.png",
-      alt: "4x4 Engineering",
-      url: "https://www.4x4es.co.jp/en/",
-    },
-    {
-      src: "/images/sponsors/Dometic.png",
-      alt: "Dometic",
-      url: "https://www.dometic.com/en-us/outdoor",
-    },
-    {
-      src: "/images/sponsors/TLCA.png",
-      alt: "TLCA",
-      url: "https://tlca.org/",
-    },
-    {
-      src: "/images/sponsors/ToyoTires.png",
-      alt: "Toyo Tires",
-      url: "https://www.toyotires.com/",
-    },
-    {
-      src: "/images/sponsors/ValleyOverlanding_resized.png",
-      alt: "Valley Overlanding",
-      url: "https://valleyoverlandco.com/",
-    },
-  ]
-
-  useEffect(() => {
-    loadFeaturedVehicles()
-
-    // Initialize Glide.js dynamically
-    const initializeGlide = async () => {
-      if (glideRef.current) {
-        try {
-          // Dynamic import of Glide.js
-          const { default: Glide } = await import("@glidejs/glide")
-
-          glideInstance.current = new Glide(glideRef.current, {
-            type: "carousel",
-            startAt: 0,
-            perView: 3,
-            gap: 32,
-            autoplay: 4000,
-            hoverpause: true,
-            animationDuration: 800,
-            animationTimingFunc: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-            breakpoints: {
-              1024: {
-                perView: 2,
-                gap: 24,
-              },
-              768: {
-                perView: 1,
-                gap: 16,
-              },
-            },
-          })
-
-          glideInstance.current.mount()
-        } catch (error) {
-          console.error("Failed to initialize Glide.js:", error)
-        }
-      }
-    }
-
-    initializeGlide()
-
-    // Cleanup
-    return () => {
-      if (glideInstance.current) {
-        glideInstance.current.destroy()
-      }
-    }
-  }, [])
-
   const loadFeaturedVehicles = async () => {
     try {
       console.log("[v0] Loading featured vehicles for homepage...")
+
+      if (!isSupabaseConfigured()) {
+        console.log("[v0] Supabase not configured, using mock data")
+        setFeaturedVehicles([])
+        setLoading(false)
+        return
+      }
 
       const supabase = createClient()
       const { data, error } = await supabase
@@ -175,7 +85,51 @@ export default function HomePage() {
     }
   }
 
-  // Helper function to get the primary image URL
+  useEffect(() => {
+    loadFeaturedVehicles()
+
+    const initializeGlide = async () => {
+      if (glideRef.current) {
+        try {
+          const { default: Glide } = await import("@glidejs/glide")
+
+          glideInstance.current = new Glide(glideRef.current, {
+            type: "carousel",
+            startAt: 0,
+            perView: 3,
+            gap: 32,
+            autoplay: 4000,
+            hoverpause: true,
+            animationDuration: 800,
+            animationTimingFunc: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+            breakpoints: {
+              1024: {
+                perView: 2,
+                gap: 24,
+              },
+              768: {
+                perView: 1,
+                gap: 16,
+              },
+            },
+          })
+
+          glideInstance.current.mount()
+        } catch (error) {
+          console.error("Failed to initialize Glide.js:", error)
+        }
+      }
+    }
+
+    initializeGlide()
+
+    return () => {
+      if (glideInstance.current) {
+        glideInstance.current.destroy()
+      }
+    }
+  }, [])
+
   const getPrimaryImageUrl = (vehicle: Vehicle): string | null => {
     if (vehicle.image_1_url) return vehicle.image_1_url
     if (vehicle.photos && vehicle.photos.length > 0 && vehicle.photos[0]) {
@@ -186,9 +140,7 @@ export default function HomePage() {
 
   return (
     <div className="bg-[#F2EEEB]">
-      {/* Hero Section */}
       <section className="relative py-20 text-center overflow-hidden">
-        {/* Background Image */}
         <div className="absolute inset-0 z-0">
           <Image
             src="https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/Green%20Cruiser.jpg"
@@ -198,11 +150,9 @@ export default function HomePage() {
             priority
             sizes="100vw"
           />
-          {/* Dark overlay for better text readability */}
           <div className="absolute inset-0 bg-black/40"></div>
         </div>
 
-        {/* Content */}
         <div className="relative z-10 max-w-4xl mx-auto px-4">
           <div className="mb-4">
             <Image
@@ -247,7 +197,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Stats Section */}
       <section className="py-16">
         <div className="max-w-6xl mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-8 text-center">
@@ -276,7 +225,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Vehicle Collection Preview */}
       <section className="py-20 bg-white">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-16">
@@ -284,15 +232,27 @@ export default function HomePage() {
             <p className="text-[#3A403D]/60">
               {loading
                 ? "Loading registered vehicles..."
-                : featuredVehicles.length > 0
-                  ? resultsPublished
-                    ? "Click on photos to learn more about each vehicle and cast your vote."
-                    : "Explore the amazing vehicles registered for the show."
-                  : "Be the first to register your vehicle for the show!"}
+                : !supabaseConfigured
+                  ? "Database connection not configured. Please set up Supabase integration."
+                  : featuredVehicles.length > 0
+                    ? resultsPublished
+                      ? "Click on photos to learn more about each vehicle and cast your vote."
+                      : "Explore the amazing vehicles registered for the show."
+                    : "Be the first to register your vehicle for the show!"}
             </p>
           </div>
 
-          {loading ? (
+          {!supabaseConfigured ? (
+            <div className="text-center py-12">
+              <div className="w-24 h-24 bg-[#BF6849]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Car className="h-12 w-12 text-[#BF6849]/60" />
+              </div>
+              <h3 className="text-xl font-semibold text-[#3A403D] mb-2">Database Configuration Required</h3>
+              <p className="text-[#3A403D]/60 mb-6">
+                Please configure your Supabase integration to display registered vehicles.
+              </p>
+            </div>
+          ) : loading ? (
             <div className="grid md:grid-cols-4 gap-6 mb-12">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="bg-gray-200 rounded-lg shadow-lg overflow-hidden animate-pulse">
@@ -332,7 +292,6 @@ export default function HomePage() {
                           </div>
                         )}
 
-                        {/* Entry number badge */}
                         <div className="absolute top-3 left-3">
                           <div className="bg-[#BF6849] text-white text-xs font-bold px-2 py-1 rounded">
                             #{vehicle.entry_number}
@@ -389,7 +348,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Participant Hub */}
       <section className="py-20 bg-[#F2EEEB]">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-16">
@@ -469,7 +427,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Sponsors Section */}
       <section className="py-20 bg-white">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-16">
@@ -477,7 +434,6 @@ export default function HomePage() {
             <p className="text-[#3A403D]/60">Proudly supported by our amazing sponsors and partners</p>
           </div>
 
-          {/* Title Sponsor */}
           <div className="text-center mb-16">
             <h3 className="text-2xl font-bold text-[#BF6849] mb-8">TITLE SPONSOR</h3>
             <div className="flex justify-center">
@@ -500,14 +456,64 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Major Sponsors - Glide.js Slider */}
           <div className="mb-16">
             <h3 className="text-2xl font-bold text-[#BF6849] text-center mb-8">MAJOR SPONSORS</h3>
             <div className="relative">
               <div ref={glideRef} className="glide">
                 <div className="glide__track" data-glide-el="track">
                   <ul className="glide__slides">
-                    {sponsors.map((sponsor, index) => (
+                    {[
+                      {
+                        src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/Landcar-Heritage-Black-White-Box-White-Type.png",
+                        alt: "Land Cruiser Heritage Museum",
+                        url: "https://landcruiserhm.com/",
+                      },
+                      {
+                        src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/Wasatch_Cruisers_Utah.png",
+                        alt: "Wasatch Cruisers Utah",
+                        url: "https://forum.wasatchcruisers.org/",
+                      },
+                      {
+                        src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/CruiserOutfitters-3x4.png",
+                        alt: "Cruiser Outfitters",
+                        url: "https://cruiserteq.com/",
+                      },
+                      {
+                        src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/ABC_3division.vector.png",
+                        alt: "ABC 3 Division",
+                        url: "https://www.abc-concrete.com/",
+                      },
+                      {
+                        src: "https://l7krxsdfvx6sguxt.public.blob.vercel-storage.com/Site%20Images/OEX_LOGO_resized.png",
+                        alt: "OEX",
+                        url: "https://www.overlandexperts.com/",
+                      },
+                      {
+                        src: "/images/sponsors/4x4Engineering.png",
+                        alt: "4x4 Engineering",
+                        url: "https://www.4x4es.co.jp/en/",
+                      },
+                      {
+                        src: "/images/sponsors/Dometic.png",
+                        alt: "Dometic",
+                        url: "https://www.dometic.com/en-us/outdoor",
+                      },
+                      {
+                        src: "/images/sponsors/TLCA.png",
+                        alt: "TLCA",
+                        url: "https://tlca.org/",
+                      },
+                      {
+                        src: "/images/sponsors/ToyoTires.png",
+                        alt: "Toyo Tires",
+                        url: "https://www.toyotires.com/",
+                      },
+                      {
+                        src: "/images/sponsors/ValleyOverlanding_resized.png",
+                        alt: "Valley Overlanding",
+                        url: "https://valleyoverlandco.com/",
+                      },
+                    ].map((sponsor, index) => (
                       <li key={index} className="glide__slide">
                         <a
                           href={sponsor.url}
@@ -533,32 +539,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Supporting Sponsors */}
-          {/* 
-<div className="mb-16">
-  <h3 className="text-xl font-bold text-[#A9BF88] text-center mb-8">SUPPORTING SPONSORS</h3>
-  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-    {[1, 2, 3, 4, 5, 6].map((sponsor) => (
-      <a
-        key={sponsor}
-        href={`https://example-sponsor${sponsor + 3}.com`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block hover:opacity-80 transition-opacity"
-      >
-        <div className="w-full h-16 bg-[#F2EEEB] border border-[#3A403D]/10 rounded-lg flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-[#3A403D]/40 text-sm font-medium mb-1">Sponsor {sponsor + 3}</div>
-            <div className="text-[#3A403D]/30 text-xs">Logo</div>
-          </div>
-        </div>
-      </a>
-    ))}
-  </div>
-</div>
-*/}
-
-          {/* Media Partners */}
           <div>
             <h3 className="text-xl font-bold text-[#A9BF88] text-center mb-8">MEDIA PARTNERS</h3>
             <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
