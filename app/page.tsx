@@ -39,7 +39,7 @@ export default function HomePage() {
     try {
       console.log("[v0] Loading featured vehicles for homepage...")
 
-      const data = await executeQuery(`
+      const result = await executeQuery(`
         SELECT v.*, c.name as category_name
         FROM vehicles v
         LEFT JOIN categories c ON v.category_id = c.id
@@ -48,16 +48,20 @@ export default function HomePage() {
         LIMIT 4
       `)
 
-      console.log("[v0] Homepage vehicles query result:", data)
-      console.log("[v0] Featured vehicles count:", data?.length || 0)
+      console.log("[v0] Homepage vehicles query result:", result)
 
-      if (data) {
+      // Handle both direct data and {data, error} response structure
+      const data = result && typeof result === "object" && "data" in result ? result.data : result
+
+      if (data && Array.isArray(data)) {
+        console.log("[v0] Featured vehicles count:", data.length)
+
         // Transform data to match expected structure
         const transformedData = data.map((vehicle: any) => ({
           ...vehicle,
-          make: vehicle.vehicle_make,
-          model: vehicle.vehicle_model,
-          year: vehicle.vehicle_year,
+          make: vehicle.vehicle_make || vehicle.make,
+          model: vehicle.vehicle_model || vehicle.model,
+          year: vehicle.vehicle_year || vehicle.year,
           category: vehicle.category_name ? { name: vehicle.category_name } : null,
         }))
 
@@ -66,10 +70,14 @@ export default function HomePage() {
           "[v0] Featured vehicles set:",
           transformedData.map((v) => ({ id: v.id, make: v.make, model: v.model, status: v.status })),
         )
+      } else {
+        console.log("[v0] No valid data received or data is not an array:", data)
+        setFeaturedVehicles([])
       }
     } catch (error) {
       console.error("[v0] Error loading featured vehicles:", error)
       setDatabaseConfigured(false)
+      setFeaturedVehicles([])
     } finally {
       setLoading(false)
     }

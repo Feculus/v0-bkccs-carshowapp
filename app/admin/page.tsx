@@ -939,273 +939,254 @@ export default function AdminPage() {
         if (error) throw error
       }
 
-      await executeQuery(`
+      await executeQuery(
+        `
           UPDATE voting_schedule 
           SET voting_opens_at = $1, voting_closes_at = $2, updated_at = $3
           WHERE id = $4
-        `, [openDateTime, closeDateTime, new Date().toISOString(), votingSchedule.id])\
-      }
-    else
-    // Create new schedule
-    await executeQuery(
-      `
-          INSERT INTO voting_schedule (voting_opens_at, voting_closes_at, is_active, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5)
         `,
-      [openDateTime, closeDateTime, true, new Date().toISOString(), new Date().toISOString()],
-    )
-
-    setToastMessage("Voting schedule updated successfully")
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 3000)
-
-    // Reload the schedule to reflect changes
-    await loadVotingSchedule()
-
-    setShowConfirmModal(false)
-    setPendingScheduleUpdate(null)
-    \
-  }
-  catch (error)
-  console.error("Error updating voting schedule:", error)
-  setToastMessage("Failed to update voting schedule")
-  setShowToast(true)
-  setTimeout(() => setShowToast(false), 2000)
-  \
-  finally
-  setVotingControlLoading(false)
-}
-
-const handlePublishResults = async (publishNow = false) => {
-  if (!publishNow && !resultsPublishDateTime) {
-    setToastMessage("Please set a publication time")
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
-    return
+        [openDateTime, closeDateTime, new Date().toISOString(), votingSchedule.id],
+      )
+    } catch (error) {
+      console.error("Error updating voting schedule:", error)
+      setToastMessage("Failed to update voting schedule")
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+    } finally {
+      setVotingControlLoading(false)
+    }
   }
 
-  const publishDateTime = publishNow ? new Date().toISOString() : new Date(resultsPublishDateTime).toISOString()
+  const handlePublishResults = async (publishNow = false) => {
+    if (!publishNow && !resultsPublishDateTime) {
+      setToastMessage("Please set a publication time")
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+      return
+    }
 
-  setPendingResultsUpdate({
-    publishDateTime,
-    isPublishing: publishNow,
-  })
-  setShowResultsConfirmModal(true)
-}
+    const publishDateTime = publishNow ? new Date().toISOString() : new Date(resultsPublishDateTime).toISOString()
 
-const confirmResultsPublication = async () => {
-  if (!pendingResultsUpdate) return
+    setPendingResultsUpdate({
+      publishDateTime,
+      isPublishing: publishNow,
+    })
+    setShowResultsConfirmModal(true)
+  }
 
-  setResultsPublishLoading(true)
-  try {
-    if (votingSchedule?.id) {
-      await executeQuery(
-        `
+  const confirmResultsPublication = async () => {
+    if (!pendingResultsUpdate) return
+
+    setResultsPublishLoading(true)
+    try {
+      if (votingSchedule?.id) {
+        await executeQuery(
+          `
           UPDATE voting_schedule 
           SET results_published_at = $1, results_are_published = $2, updated_at = $3
           WHERE id = $4
         `,
-        [
-          pendingResultsUpdate.publishDateTime,
-          pendingResultsUpdate.isPublishing,
-          new Date().toISOString(),
-          votingSchedule.id,
-        ],
-      )
-    } else {
-      await executeQuery(
-        `
+          [
+            pendingResultsUpdate.publishDateTime,
+            pendingResultsUpdate.isPublishing,
+            new Date().toISOString(),
+            votingSchedule.id,
+          ],
+        )
+      } else {
+        await executeQuery(
+          `
           INSERT INTO voting_schedule (voting_opens_at, voting_closes_at, results_published_at, results_are_published, is_active, created_at, updated_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
         `,
-        [
-          votingSchedule?.voting_opens_at,
-          votingSchedule?.voting_closes_at,
-          pendingResultsUpdate.publishDateTime,
-          pendingResultsUpdate.isPublishing,
-          true,
-          new Date().toISOString(),
-          new Date().toISOString(),
-        ],
+          [
+            votingSchedule?.voting_opens_at,
+            votingSchedule?.voting_closes_at,
+            pendingResultsUpdate.publishDateTime,
+            pendingResultsUpdate.isPublishing,
+            true,
+            new Date().toISOString(),
+            new Date().toISOString(),
+          ],
+        )
+      }
+
+      await loadAdminData()
+      setToastMessage(
+        pendingResultsUpdate.isPublishing ? "Results published successfully!" : "Results publication scheduled!",
       )
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+      setShowResultsConfirmModal(false)
+      setPendingResultsUpdate(null)
+    } catch (error) {
+      console.error("Error updating results publication:", error)
+      setToastMessage("Failed to update results publication")
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+    } finally {
+      setResultsPublishLoading(false)
     }
-
-    await loadAdminData()
-    setToastMessage(
-      pendingResultsUpdate.isPublishing ? "Results published successfully!" : "Results publication scheduled!",
-    )
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
-    setShowResultsConfirmModal(false)
-    setPendingResultsUpdate(null)
-  } catch (error) {
-    console.error("Error updating results publication:", error)
-    setToastMessage("Failed to update results publication")
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
-  } finally {
-    setResultsPublishLoading(false)
   }
-}
 
-const handleUnpublishResults = async () => {
-  setResultsPublishLoading(true)
-  try {
-    await executeQuery(
-      `
+  const handleUnpublishResults = async () => {
+    setResultsPublishLoading(true)
+    try {
+      await executeQuery(
+        `
         UPDATE voting_schedule 
         SET results_published_at = NULL, results_are_published = FALSE, updated_at = $1
         WHERE id = $2
       `,
-      [new Date().toISOString(), votingSchedule?.id],
-    )
+        [new Date().toISOString(), votingSchedule?.id],
+      )
 
-    await loadAdminData()
-    setResultsPublishDateTime("")
-    setToastMessage("Results unpublished successfully!")
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
-  } catch (error) {
-    console.error("Error unpublishing results:", error)
-    setToastMessage("Failed to unpublish results")
+      await loadAdminData()
+      setResultsPublishDateTime("")
+      setToastMessage("Results unpublished successfully!")
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+    } catch (error) {
+      console.error("Error unpublishing results:", error)
+      setToastMessage("Failed to unpublish results")
 
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 2000)
-  } finally {
-    setResultsPublishLoading(false)
-  }
-}
-
-const getVotingStatus = () => {
-  if (!votingSchedule) return { status: "unknown", message: "No schedule set" }
-
-  const now = new Date()
-  const opensAt = new Date(votingSchedule.voting_opens_at)
-  const closesAt = new Date(votingSchedule.voting_closes_at)
-
-  if (now < opensAt) {
-    return { status: "closed", message: "Voting not yet open" }
-  } else if (now >= opensAt && now < closesAt) {
-    return { status: "open", message: "Voting is currently open" }
-  } else {
-    return { status: "closed", message: "Voting has ended" }
-  }
-}
-
-const getResultsStatus = () => {
-  if (!votingSchedule) return { status: "unknown", message: "No schedule set" }
-
-  const now = new Date()
-  const publishedAt = votingSchedule.results_published_at ? new Date(votingSchedule.results_published_at) : null
-
-  if (votingSchedule.results_are_published) {
-    return { status: "published", message: "Results are live" }
-  } else if (publishedAt && now < publishedAt) {
-    return { status: "scheduled", message: "Results publication scheduled" }
-  } else {
-    return { status: "hidden", message: "Results are hidden" }
-  }
-}
-
-const formatDateInTimezone = (date: string) => {
-  return new Date(date).toLocaleString("en-US", {
-    timeZone: selectedTimezone,
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
-  })
-}
-
-const getTimezoneOptions = () => {
-  const timezones = [
-    "America/New_York",
-    "America/Chicago",
-    "America/Denver",
-    "America/Los_Angeles",
-    "America/Phoenix",
-    "America/Anchorage",
-    "Pacific/Honolulu",
-    "Europe/London",
-    "Europe/Paris",
-    "Europe/Berlin",
-    "Asia/Tokyo",
-    "Asia/Shanghai",
-    "Australia/Sydney",
-    "UTC",
-  ]
-
-  // Add user's detected timezone if not in list
-  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone
-  if (!timezones.includes(userTz)) {
-    timezones.unshift(userTz)
+      setShowToast(true)
+      setTimeout(() => setShowToast(false), 2000)
+    } finally {
+      setResultsPublishLoading(false)
+    }
   }
 
-  return timezones.sort()
-}
+  const getVotingStatus = () => {
+    if (!votingSchedule) return { status: "unknown", message: "No schedule set" }
 
-const handleArchiveVehicle = async (vehicleId: number) => {
-  console.log("[v0] Archive button clicked for vehicle ID:", vehicleId)
-  setConfirmationModal({
-    isOpen: true,
-    vehicleId,
-    action: "archive",
-    title: "Archive Vehicle",
-    description:
-      "Are you sure you want to archive this vehicle? It will be hidden from the public view and won't count toward the registration limit.",
-  })
-}
+    const now = new Date()
+    const opensAt = new Date(votingSchedule.voting_opens_at)
+    const closesAt = new Date(votingSchedule.voting_closes_at)
 
-const handleUnarchiveVehicle = async (vehicleId: number) => {
-  console.log("[v0] Unarchive button clicked for vehicle ID:", vehicleId)
-  setConfirmationModal({
-    isOpen: true,
-    vehicleId,
-    action: "unarchive",
-    title: "Restore Vehicle",
-    description: "Are you sure you want to restore this vehicle? It will be visible to the public again.",
-  })
-}
-
-const handleConfirmAction = async () => {
-  if (!confirmationModal.vehicleId) return
-
-  try {
-    console.log(`[v0] Executing ${confirmationModal.action} for vehicle ${confirmationModal.vehicleId}`)
-
-    const result =
-      confirmationModal.action === "archive"
-        ? await archiveVehicle(confirmationModal.vehicleId)
-        : await unarchiveVehicle(confirmationModal.vehicleId)
-
-    console.log("[v0] Action result:", result)
-
-    if (result.success) {
-      console.log("[v0] Action successful, refreshing page...")
-      setConfirmationModal({ isOpen: false, vehicleId: null, action: "archive", title: "", description: "" })
-      setTimeout(() => window.location.reload(), 500)
+    if (now < opensAt) {
+      return { status: "closed", message: "Voting not yet open" }
+    } else if (now >= opensAt && now < closesAt) {
+      return { status: "open", message: "Voting is currently open" }
     } else {
-      console.error("[v0] Action failed:", result.error)
-      alert(`Error: ${result.error || `Failed to ${confirmationModal.action} vehicle`}`)
+      return { status: "closed", message: "Voting has ended" }
+    }
+  }
+
+  const getResultsStatus = () => {
+    if (!votingSchedule) return { status: "unknown", message: "No schedule set" }
+
+    const now = new Date()
+    const publishedAt = votingSchedule.results_published_at ? new Date(votingSchedule.results_published_at) : null
+
+    if (votingSchedule.results_are_published) {
+      return { status: "published", message: "Results are live" }
+    } else if (publishedAt && now < publishedAt) {
+      return { status: "scheduled", message: "Results publication scheduled" }
+    } else {
+      return { status: "hidden", message: "Results are hidden" }
+    }
+  }
+
+  const formatDateInTimezone = (date: string) => {
+    return new Date(date).toLocaleString("en-US", {
+      timeZone: selectedTimezone,
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZoneName: "short",
+    })
+  }
+
+  const getTimezoneOptions = () => {
+    const timezones = [
+      "America/New_York",
+      "America/Chicago",
+      "America/Denver",
+      "America/Los_Angeles",
+      "America/Phoenix",
+      "America/Anchorage",
+      "Pacific/Honolulu",
+      "Europe/London",
+      "Europe/Paris",
+      "Europe/Berlin",
+      "Asia/Tokyo",
+      "Asia/Shanghai",
+      "Australia/Sydney",
+      "UTC",
+    ]
+
+    // Add user's detected timezone if not in list
+    const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!timezones.includes(userTz)) {
+      timezones.unshift(userTz)
+    }
+
+    return timezones.sort()
+  }
+
+  const handleArchiveVehicle = async (vehicleId: number) => {
+    console.log("[v0] Archive button clicked for vehicle ID:", vehicleId)
+    setConfirmationModal({
+      isOpen: true,
+      vehicleId,
+      action: "archive",
+      title: "Archive Vehicle",
+      description:
+        "Are you sure you want to archive this vehicle? It will be hidden from the public view and won't count toward the registration limit.",
+    })
+  }
+
+  const handleUnarchiveVehicle = async (vehicleId: number) => {
+    console.log("[v0] Unarchive button clicked for vehicle ID:", vehicleId)
+    setConfirmationModal({
+      isOpen: true,
+      vehicleId,
+      action: "unarchive",
+      title: "Restore Vehicle",
+      description: "Are you sure you want to restore this vehicle? It will be visible to the public again.",
+    })
+  }
+
+  const handleConfirmAction = async () => {
+    if (!confirmationModal.vehicleId) return
+
+    try {
+      console.log(`[v0] Executing ${confirmationModal.action} for vehicle ${confirmationModal.vehicleId}`)
+
+      const result =
+        confirmationModal.action === "archive"
+          ? await archiveVehicle(confirmationModal.vehicleId)
+          : await unarchiveVehicle(confirmationModal.vehicleId)
+
+      console.log("[v0] Action result:", result)
+
+      if (result.success) {
+        console.log("[v0] Action successful, refreshing page...")
+        setConfirmationModal({ isOpen: false, vehicleId: null, action: "archive", title: "", description: "" })
+        setTimeout(() => window.location.reload(), 500)
+      } else {
+        console.error("[v0] Action failed:", result.error)
+        alert(`Error: ${result.error || `Failed to ${confirmationModal.action} vehicle`}`)
+        setConfirmationModal({ isOpen: false, vehicleId: null, action: "archive", title: "", description: "" })
+      }
+    } catch (error) {
+      console.error("[v0] Action error:", error)
+      alert("An unexpected error occurred")
       setConfirmationModal({ isOpen: false, vehicleId: null, action: "archive", title: "", description: "" })
     }
-  } catch (error) {
-    console.error("[v0] Action error:", error)
-    alert("An unexpected error occurred")
-    setConfirmationModal({ isOpen: false, vehicleId: null, action: "archive", title: "", description: "" })
   }
-}
 
-const filteredVehicles = vehicles.filter((vehicle) =>
-  showArchived ? vehicle.status === "archived" : vehicle.status !== "archived",
-)
+  const filteredVehicles = vehicles.filter((vehicle) =>
+    showArchived ? vehicle.status === "archived" : vehicle.status !== "archived",
+  )
 
-const activeVehicleCount = vehicles.filter((vehicle) => vehicle.status !== "archived").length
+  const activeVehicleCount = vehicles.filter((vehicle) => vehicle.status !== "archived").length
 
-if (loading) {
-  return (
+  if (loading) {
+    return (
       <div className="min-h-screen bg-[#F2EEEB] flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#BF6849] mx-auto mb-4"></div>
@@ -1213,9 +1194,9 @@ if (loading) {
         </div>
       </div>
     )
-}
+  }
 
-return (
+  return (
     <div className="min-h-screen bg-gradient-to-br from-[#F2EEEB] to-[#E8E2DB] py-8">
       <div className="max-w-7xl mx-auto px-4">
         {/* Header */}
@@ -1785,11 +1766,14 @@ return (
                                     const newCheckedInAt = vehicle.checked_in_at ? null : new Date().toISOString()
                                     console.log("[v0] Updating checked_in_at to:", newCheckedInAt)
 
-                                    await executeQuery(`
+                                    await executeQuery(
+                                      `
                                       UPDATE vehicles 
                                       SET checked_in_at = $1 
                                       WHERE id = $2
-                                    `, [newCheckedInAt, vehicle.id])
+                                    `,
+                                      [newCheckedInAt, vehicle.id],
+                                    )
 
                                     console.log("[v0] Check-in update successful, reloading data...")
                                     await loadAdminData()
@@ -2136,5 +2120,4 @@ return (
       )}
     </div>
   )
-\
 }

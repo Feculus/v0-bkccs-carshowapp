@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless"
 
-const databaseUrl = process.env.NEON_NEON_DATABASE_URL || process.env.DATABASE_URL
+const databaseUrl = process.env.NEON_NEON_NEON_DATABASE_URL || process.env.DATABASE_URL
 
 export const createServerClient = () => {
   if (!databaseUrl || databaseUrl.includes("placeholder")) {
@@ -26,6 +26,10 @@ export const executeServerQuery = async (query: string, params: any[] = []) => {
     return { data: null, error }
   }
 }
+
+export const executeQuery = executeServerQuery
+
+export const sql = createServerClient()
 
 // Export the same operations but using server client
 export { vehicleOperations, votingOperations, adminOperations } from "./client"
