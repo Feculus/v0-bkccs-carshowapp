@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 import { voterTracker } from "@/lib/voter-tracking"
 
 export interface VoteResult {
@@ -29,8 +29,6 @@ export interface CurrentVote {
 
 // Get the current user's vote (since there's only one vote per user now)
 export async function getCurrentVote(): Promise<CurrentVote | null> {
-  const supabase = createClient()
-
   try {
     // Get voter fingerprint using the existing voter tracking system
     const voterFingerprint = await voterTracker.getVoterFingerprint()
@@ -39,14 +37,18 @@ export async function getCurrentVote(): Promise<CurrentVote | null> {
       voterFingerprint: voterFingerprint.substring(0, 10) + "...",
     })
 
-    const { data, error } = await supabase
-      .from("votes")
-      .select(`
-        *,
-        vehicles!votes_vehicle_id_fkey(id, entry_number, make, model, year, full_name)
-      `)
-      .eq("voter_session", voterFingerprint)
-      .maybeSingle()
+    const { data, error } = await executeQuery(
+      `
+      SELECT v.*, 
+             vh.id as vehicle_id, vh.entry_number, vh.vehicle_make as make, 
+             vh.vehicle_model as model, vh.vehicle_year as year, vh.owner_name as full_name
+      FROM votes v
+      LEFT JOIN vehicles vh ON v.vehicle_id = vh.id
+      WHERE v.voter_session = $1
+      LIMIT 1
+    `,
+      [voterFingerprint],
+    )
 
     if (error) {
       console.error("Error fetching current vote:", error)
@@ -54,10 +56,17 @@ export async function getCurrentVote(): Promise<CurrentVote | null> {
     }
 
     console.log("Current vote found:", data)
-    return data
+    return data && data.length > 0
       ? {
-          ...data,
-          vehicle: data.vehicles,
+          ...data[0],
+          vehicle: {
+            id: data[0].vehicle_id,
+            entry_number: data[0].entry_number,
+            make: data[0].make,
+            model: data[0].model,
+            year: data[0].year,
+            full_name: data[0].full_name,
+          },
         }
       : null
   } catch (error) {
@@ -68,8 +77,6 @@ export async function getCurrentVote(): Promise<CurrentVote | null> {
 
 // Cast a new vote (only if user hasn't voted yet)
 export async function castVote(vehicleId: number): Promise<VoteResult> {
-  const supabase = createClient()
-
   try {
     // Get voter fingerprint using the existing voter tracking system
     const voterFingerprint = await voterTracker.getVoterFingerprint()
@@ -80,11 +87,12 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
     })
 
     // First, check if a vote already exists for this voter
-    const { data: existingVote, error: fetchError } = await supabase
-      .from("votes")
-      .select("id, vehicle_id")
-      .eq("voter_session", voterFingerprint)
-      .maybeSingle()
+    const { data: existingVote, error: fetchError } = await executeQuery(
+      `
+      SELECT id, vehicle_id FROM votes WHERE voter_session = $1 LIMIT 1
+    `,
+      [voterFingerprint],
+    )
 
     if (fetchError) {
       console.error("Error checking existing vote:", fetchError)
@@ -95,13 +103,13 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
       }
     }
 
-    if (existingVote) {
+    if (existingVote && existingVote.length > 0) {
       // User has already voted - don't allow another vote
-      console.log("User has already voted:", existingVote.id)
+      console.log("User has already voted:", existingVote[0].id)
       return {
         success: false,
         action: "already_voted",
-        voteId: existingVote.id,
+        voteId: existingVote[0].id,
         error: "You have already voted for Best in Show. Each voter can only vote once.",
       }
     }
@@ -109,22 +117,20 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
     // No existing vote - create new one
     console.log("Creating new vote")
 
-    const { data: newVote, error: insertError } = await supabase
-      .from("votes")
-      .insert({
-        vehicle_id: vehicleId,
-        voter_ip: voterFingerprint, // Using fingerprint as IP for consistency
-        voter_session: voterFingerprint,
-        category_id: 25, // Best of Show category
-      })
-      .select("id")
-      .single()
+    const { data: newVote, error: insertError } = await executeQuery(
+      `
+      INSERT INTO votes (vehicle_id, voter_ip, voter_session, category_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+    `,
+      [vehicleId, voterFingerprint, voterFingerprint, 25],
+    ) // Best of Show category
 
     if (insertError) {
       console.error("Error creating vote:", insertError)
 
       // Handle duplicate key constraint violation (race condition)
-      if (insertError.code === "23505") {
+      if (insertError.message && insertError.message.includes("duplicate key")) {
         console.log("Duplicate key detected - user already voted")
         return {
           success: false,
@@ -140,7 +146,7 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
       }
     }
 
-    if (!newVote) {
+    if (!newVote || newVote.length === 0) {
       return {
         success: false,
         action: "created",
@@ -148,11 +154,11 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
       }
     }
 
-    console.log("Vote created successfully:", newVote)
+    console.log("Vote created successfully:", newVote[0])
     return {
       success: true,
       action: "created",
-      voteId: newVote.id,
+      voteId: newVote[0].id,
     }
   } catch (error) {
     console.error("Unexpected error in castVote:", error)
@@ -166,21 +172,21 @@ export async function castVote(vehicleId: number): Promise<VoteResult> {
 
 // Get vote count for a specific vehicle
 export async function getVoteCount(vehicleId: number): Promise<number> {
-  const supabase = createClient()
-
   try {
-    const { count, error } = await supabase
-      .from("votes")
-      .select("*", { count: "exact", head: true })
-      .eq("vehicle_id", vehicleId)
-      .eq("category_id", 25) // Only count Best of Show votes
+    const { data, error } = await executeQuery(
+      `
+      SELECT COUNT(*) as count FROM votes 
+      WHERE vehicle_id = $1 AND category_id = 25
+    `,
+      [vehicleId],
+    )
 
     if (error) {
       console.error("Error getting vote count:", error)
       return 0
     }
 
-    return count || 0
+    return data?.[0]?.count || 0
   } catch (error) {
     console.error("Error in getVoteCount:", error)
     return 0
@@ -189,17 +195,17 @@ export async function getVoteCount(vehicleId: number): Promise<number> {
 
 // Get all votes with vehicle details
 export async function getAllVotes() {
-  const supabase = createClient()
-
   try {
-    const { data, error } = await supabase
-      .from("votes")
-      .select(`
-        *,
-        vehicles!votes_vehicle_id_fkey(id, entry_number, make, model, year, full_name, city, state)
-      `)
-      .eq("category_id", 25) // Only get Best of Show votes
-      .order("created_at", { ascending: false })
+    const { data, error } = await executeQuery(`
+      SELECT v.*, 
+             vh.id as vehicle_id, vh.entry_number, vh.vehicle_make as make, 
+             vh.vehicle_model as model, vh.vehicle_year as year, vh.owner_name as full_name,
+             vh.city, vh.state
+      FROM votes v
+      LEFT JOIN vehicles vh ON v.vehicle_id = vh.id
+      WHERE v.category_id = 25
+      ORDER BY v.created_at DESC
+    `)
 
     if (error) {
       console.error("Error fetching votes:", error)
@@ -209,7 +215,16 @@ export async function getAllVotes() {
     return (
       data?.map((vote) => ({
         ...vote,
-        vehicle: vote.vehicles,
+        vehicle: {
+          id: vote.vehicle_id,
+          entry_number: vote.entry_number,
+          make: vote.make,
+          model: vote.model,
+          year: vote.year,
+          full_name: vote.full_name,
+          city: vote.city,
+          state: vote.state,
+        },
       })) || []
     )
   } catch (error) {

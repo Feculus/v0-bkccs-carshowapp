@@ -6,9 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Trophy, Users, BarChart3, Download, RefreshCw } from "lucide-react"
 import Link from "next/link"
-import { createClient } from "@/utils/supabase/client"
-
-const supabase = createClient()
+import { executeQuery } from "@/utils/neon/client"
 
 interface VoteResult {
   vehicle_id: number
@@ -45,22 +43,14 @@ export default function AdminVotesPage() {
       console.log("[v0] Loading voting stats...")
       setLoading(true)
 
-      const { data: voteData, error: voteError } = await supabase
-        .from("votes")
-        .select(`
-          vehicle_id,
-          vehicle:vehicles!votes_vehicle_id_fkey(
-            id,
-            entry_number,
-            make,
-            model,
-            year,
-            full_name,
-            city,
-            state
-          )
-        `)
-        .eq("category_id", 25) // Only get Best of Show votes
+      const { data: voteData, error: voteError } = await executeQuery(`
+        SELECT v.vehicle_id, v.voter_session,
+               vh.id, vh.entry_number, vh.vehicle_make as make, vh.vehicle_model as model, 
+               vh.vehicle_year as year, vh.owner_name as full_name, vh.city, vh.state
+        FROM votes v
+        LEFT JOIN vehicles vh ON v.vehicle_id = vh.id
+        WHERE v.category_id = 25
+      `)
 
       if (voteError) {
         console.error("Error loading votes:", voteError)
@@ -74,22 +64,26 @@ export default function AdminVotesPage() {
 
       voteData?.forEach((vote: any) => {
         totalVotes++
+        uniqueVoters.add(vote.voter_session)
 
         if (!voteCounts[vote.vehicle_id]) {
           voteCounts[vote.vehicle_id] = {
             vehicle_id: vote.vehicle_id,
             vote_count: 0,
-            vehicle: vote.vehicle,
+            vehicle: {
+              id: vote.id,
+              entry_number: vote.entry_number,
+              make: vote.make,
+              model: vote.model,
+              year: vote.year,
+              full_name: vote.full_name,
+              city: vote.city,
+              state: vote.state,
+            },
           }
         }
         voteCounts[vote.vehicle_id].vote_count++
       })
-
-      // Get unique voter count
-      const { count: voterCount } = await supabase
-        .from("votes")
-        .select("voter_session", { count: "exact", head: true })
-        .eq("category_id", 25) // Only count Best of Show voters
 
       // Sort by vote count and get top vehicles
       const topVehicles = Object.values(voteCounts)
@@ -98,7 +92,7 @@ export default function AdminVotesPage() {
 
       setStats({
         totalVotes,
-        uniqueVoters: voterCount || 0,
+        uniqueVoters: uniqueVoters.size,
         topVehicles,
       })
     } catch (error) {

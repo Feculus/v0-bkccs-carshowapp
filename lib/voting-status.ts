@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 
 export interface VotingSchedule {
   id: number
@@ -17,7 +17,6 @@ export class VotingStatusManager {
   private status: VotingStatus = "loading"
   private listeners: Array<(status: VotingStatus, schedule: VotingSchedule | null) => void> = []
   private pollInterval: NodeJS.Timeout | null = null
-  private supabase = createClient()
 
   private constructor() {}
 
@@ -97,23 +96,32 @@ export class VotingStatusManager {
     try {
       console.log("[v0] Updating voting status from database...")
 
-      const { data: scheduleData, error } = await this.supabase
-        .from("voting_schedule")
-        .select("*")
-        .eq("is_active", true)
-        .single()
+      const { data: scheduleData, error } = await executeQuery(`
+        SELECT * FROM voting_schedule 
+        WHERE voting_open = true 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `)
 
       console.log("[v0] Voting schedule query result:", { scheduleData, error })
 
       const previousStatus = this.status
       const previousSchedule = this.schedule
 
-      if (scheduleData) {
-        this.schedule = scheduleData
+      if (scheduleData && scheduleData.length > 0) {
+        const schedule = scheduleData[0]
+        this.schedule = {
+          id: schedule.id,
+          voting_opens_at: schedule.voting_start_time,
+          voting_closes_at: schedule.voting_end_time,
+          is_active: schedule.voting_open,
+          created_at: schedule.created_at,
+          updated_at: schedule.updated_at,
+        }
 
         const nowMST = this.getCurrentMSTTime()
-        const opensAtMST = this.convertToMST(new Date(scheduleData.voting_opens_at))
-        const closesAtMST = this.convertToMST(new Date(scheduleData.voting_closes_at))
+        const opensAtMST = this.convertToMST(new Date(schedule.voting_start_time))
+        const closesAtMST = this.convertToMST(new Date(schedule.voting_end_time))
 
         console.log("[v0] MST Time comparison:", {
           nowMST: nowMST.toISOString(),

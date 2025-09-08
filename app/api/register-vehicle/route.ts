@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js"
+import { executeQuery } from "@/utils/neon/client"
 import { type NextRequest, NextResponse } from "next/server"
 
 interface VehicleRegistrationData {
@@ -36,14 +36,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const clientIP = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown"
     console.log("Request from IP:", clientIP)
 
-    // Validate environment variables first
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      console.error("NEXT_PUBLIC_SUPABASE_URL is missing")
-      return NextResponse.json({ success: false, error: "Service temporarily unavailable" }, { status: 500 })
-    }
-
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error("SUPABASE_SERVICE_ROLE_KEY is missing")
+    const databaseUrl = process.env.NEON_NEON_DATABASE_URL || process.env.DATABASE_URL
+    if (!databaseUrl) {
+      console.error("Database URL is missing")
       return NextResponse.json({ success: false, error: "Service temporarily unavailable" }, { status: 500 })
     }
 
@@ -52,14 +47,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: "Service temporarily unavailable" }, { status: 500 })
     }
 
-    // Create Supabase client
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-
     console.log("Checking current registration count...")
-    const { count, error: countError } = await supabase
-      .from("vehicles")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "active")
+    const { data: countResult, error: countError } = await executeQuery(`
+      SELECT COUNT(*) as count FROM vehicles WHERE checked_in = true
+    `)
 
     if (countError) {
       console.error("Error checking registration count:", countError)
@@ -69,9 +60,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
+    const count = countResult?.[0]?.count || 0
     console.log(`Current active registration count: ${count}`)
 
-    if (count !== null && count >= 50) {
+    if (count >= 50) {
       console.log("Registration limit reached - rejecting new registration")
       return NextResponse.json(
         {
@@ -154,61 +146,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     console.log(`Generated entry number: ${entryNumber}, profile URL: ${profileUrl}`)
 
-    // Test database connection
-    console.log("Testing database connection...")
-    const { data: testData, error: testError } = await supabase
-      .from("vehicles")
-      .select("count", { count: "exact", head: true })
-
-    if (testError) {
-      console.error("Database connection test failed:", testError)
-      return NextResponse.json({ success: false, error: "Service temporarily unavailable" }, { status: 500 })
-    }
-
-    console.log("Database connection successful")
-
-    // Prepare vehicle data for insertion
-    const vehicleInsertData = {
-      entry_number: entryNumber,
-      full_name: vehicleData.full_name,
-      email: vehicleData.email,
-      phone: vehicleData.phone || null,
-      city: vehicleData.city,
-      state: vehicleData.state,
-      make: vehicleData.make,
-      model: vehicleData.model,
-      year: vehicleData.year,
-      category_id: 25,
-      description: vehicleData.description || null,
-      photos: vehicleData.photo_urls,
-      profile_url: profileUrl,
-      // Set individual image URL columns
-      image_1_url: vehicleData.photo_urls[0] || null,
-      image_2_url: vehicleData.photo_urls[1] || null,
-      image_3_url: vehicleData.photo_urls[2] || null,
-      image_4_url: vehicleData.photo_urls[3] || null,
-      image_5_url: vehicleData.photo_urls[4] || null,
-    }
-
-    console.log("Inserting vehicle record with data:", vehicleInsertData)
-
-    // Insert vehicle record with all data at once
-    const { data: vehicleData_db, error: vehicleError } = await supabase
-      .from("vehicles")
-      .insert(vehicleInsertData)
-      .select()
-      .single()
+    const { data: vehicleResult, error: vehicleError } = await executeQuery(
+      `
+      INSERT INTO vehicles (
+        owner_name, owner_email, owner_phone,
+        vehicle_year, vehicle_make, vehicle_model,
+        vehicle_description, image_url_1, image_url_2, image_url_3,
+        image_url_4, image_url_5, photos
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *
+    `,
+      [
+        vehicleData.full_name,
+        vehicleData.email,
+        vehicleData.phone || null,
+        vehicleData.year,
+        vehicleData.make,
+        vehicleData.model,
+        vehicleData.description || null,
+        vehicleData.photo_urls[0] || null,
+        vehicleData.photo_urls[1] || null,
+        vehicleData.photo_urls[2] || null,
+        vehicleData.photo_urls[3] || null,
+        vehicleData.photo_urls[4] || null,
+        JSON.stringify(vehicleData.photo_urls),
+      ],
+    )
 
     if (vehicleError) {
       console.error("Vehicle creation error:", vehicleError)
       return NextResponse.json({ success: false, error: "Unable to complete registration" }, { status: 500 })
     }
 
-    if (!vehicleData_db) {
+    if (!vehicleResult || vehicleResult.length === 0) {
       console.error("No vehicle data returned after insert")
       return NextResponse.json({ success: false, error: "Unable to complete registration" }, { status: 500 })
     }
 
+    const vehicleData_db = vehicleResult[0]
     console.log(`Vehicle record created successfully with ID: ${vehicleData_db.id}`)
     console.log("=== REGISTRATION COMPLETED SUCCESSFULLY ===")
 

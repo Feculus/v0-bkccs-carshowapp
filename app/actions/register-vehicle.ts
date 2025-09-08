@@ -1,7 +1,7 @@
 "use server"
 
 import { put } from "@vercel/blob"
-import { createClient } from "@supabase/supabase-js"
+import { executeQuery } from "@/utils/neon/server"
 
 interface VehicleRegistrationData {
   full_name: string
@@ -29,14 +29,10 @@ export async function registerVehicle(formData: FormData) {
     }
 
     // Validate environment variables first
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      console.error("NEXT_PUBLIC_SUPABASE_URL is missing")
-      return { success: false, error: "Database configuration error: Missing Supabase URL" }
-    }
-
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error("SUPABASE_SERVICE_ROLE_KEY is missing")
-      return { success: false, error: "Database configuration error: Missing service role key" }
+    const databaseUrl = process.env.NEON_NEON_DATABASE_URL || process.env.DATABASE_URL
+    if (!databaseUrl) {
+      console.error("Database URL is missing")
+      return { success: false, error: "Database configuration error: Missing database URL" }
     }
 
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
@@ -116,14 +112,9 @@ export async function registerVehicle(formData: FormData) {
 
     console.log(`Generated entry number: ${entryNumber}, profile URL: ${profileUrl}`)
 
-    // Create Supabase client directly with service role key for server actions
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-
     // Test database connection
     console.log("Testing database connection...")
-    const { data: testData, error: testError } = await supabase
-      .from("vehicles")
-      .select("count", { count: "exact", head: true })
+    const { data: testData, error: testError } = await executeQuery("SELECT 1 as test")
 
     if (testError) {
       console.error("Database connection test failed:", testError)
@@ -151,23 +142,39 @@ export async function registerVehicle(formData: FormData) {
     }
 
     console.log("Inserting vehicle record with data:", vehicleInsertData)
-    const { data: vehicleData_db, error: vehicleError } = await supabase
-      .from("vehicles")
-      .insert(vehicleInsertData)
-      .select()
-      .single()
+    const { data: vehicleData_db, error: vehicleError } = await executeQuery(
+      `
+      INSERT INTO vehicles (
+        owner_name, owner_email, owner_phone,
+        vehicle_year, vehicle_make, vehicle_model,
+        vehicle_description, photos
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `,
+      [
+        vehicleData.full_name,
+        vehicleData.email,
+        vehicleData.phone || null,
+        vehicleData.year,
+        vehicleData.make,
+        vehicleData.model,
+        vehicleData.description || null,
+        JSON.stringify([]),
+      ],
+    )
 
     if (vehicleError) {
       console.error("Vehicle creation error:", vehicleError)
       return { success: false, error: `Failed to create vehicle record: ${vehicleError.message}` }
     }
 
-    if (!vehicleData_db) {
+    if (!vehicleData_db || vehicleData_db.length === 0) {
       console.error("No vehicle data returned after insert")
       return { success: false, error: "Failed to create vehicle record: No data returned" }
     }
 
-    console.log(`Vehicle record created successfully with ID: ${vehicleData_db.id}`)
+    const vehicleData_db_first = vehicleData_db[0]
+    console.log(`Vehicle record created successfully with ID: ${vehicleData_db_first.id}`)
 
     // Upload photos to Vercel Blob
     const photoUrls: string[] = []
@@ -182,7 +189,7 @@ export async function registerVehicle(formData: FormData) {
 
       try {
         const fileExt = file.name.split(".").pop()?.toLowerCase() || "jpg"
-        const fileName = `vehicle-${vehicleData_db.id}-${i + 1}-${Date.now()}.${fileExt}`
+        const fileName = `vehicle-${vehicleData_db_first.id}-${i + 1}-${Date.now()}.${fileExt}`
         console.log(`Generated filename: ${fileName}`)
 
         console.log("Calling put() with:")
@@ -211,7 +218,7 @@ export async function registerVehicle(formData: FormData) {
         })
 
         // Clean up vehicle record and any uploaded photos
-        await supabase.from("vehicles").delete().eq("id", vehicleData_db.id)
+        await executeQuery("DELETE FROM vehicles WHERE id = $1", [vehicleData_db_first.id])
         return {
           success: false,
           error: `Failed to upload photo ${i + 1}: ${uploadError instanceof Error ? uploadError.message : "Unknown error"}`,
@@ -225,45 +232,38 @@ export async function registerVehicle(formData: FormData) {
 
     if (photoUrls.length === 0) {
       console.error("ERROR: No photo URLs generated despite successful uploads")
-      await supabase.from("vehicles").delete().eq("id", vehicleData_db.id)
+      await executeQuery("DELETE FROM vehicles WHERE id = $1", [vehicleData_db_first.id])
       return { success: false, error: "Photo upload failed - no URLs generated" }
     }
 
     // Update vehicle record with photo URLs
     const updateData: any = {
-      photos: photoUrls,
+      photos: JSON.stringify(photoUrls),
     }
 
     // Set individual image URL columns
-    if (photoUrls.length >= 1) {
-      updateData.image_1_url = photoUrls[0]
-      console.log(`Setting image_1_url: ${photoUrls[0]}`)
-    }
-    if (photoUrls.length >= 2) {
-      updateData.image_2_url = photoUrls[1]
-      console.log(`Setting image_2_url: ${photoUrls[1]}`)
-    }
-    if (photoUrls.length >= 3) {
-      updateData.image_3_url = photoUrls[2]
-      console.log(`Setting image_3_url: ${photoUrls[2]}`)
-    }
-    if (photoUrls.length >= 4) {
-      updateData.image_4_url = photoUrls[3]
-      console.log(`Setting image_4_url: ${photoUrls[3]}`)
-    }
-    if (photoUrls.length >= 5) {
-      updateData.image_5_url = photoUrls[4]
-      console.log(`Setting image_5_url: ${photoUrls[4]}`)
-    }
+    if (photoUrls.length >= 1) updateData.image_url_1 = photoUrls[0]
+    if (photoUrls.length >= 2) updateData.image_url_2 = photoUrls[1]
+    if (photoUrls.length >= 3) updateData.image_url_3 = photoUrls[2]
+    if (photoUrls.length >= 4) updateData.image_url_4 = photoUrls[3]
+    if (photoUrls.length >= 5) updateData.image_url_5 = photoUrls[4]
+
+    const fields = Object.keys(updateData)
+    const values = Object.values(updateData)
+    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(", ")
 
     console.log("Final update data:", updateData)
 
     console.log("Updating vehicle record...")
-    const { data: updateResult, error: updateError } = await supabase
-      .from("vehicles")
-      .update(updateData)
-      .eq("id", vehicleData_db.id)
-      .select()
+    const { data: updateResult, error: updateError } = await executeQuery(
+      `
+      UPDATE vehicles 
+      SET ${setClause}, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+      [vehicleData_db_first.id, ...values],
+    )
 
     if (updateError) {
       console.error("Update error:", updateError)
@@ -275,11 +275,14 @@ export async function registerVehicle(formData: FormData) {
 
     // Verify the update
     console.log("Verifying update...")
-    const { data: updatedVehicle, error: fetchError } = await supabase
-      .from("vehicles")
-      .select("id, entry_number, photos, image_1_url, image_2_url, image_3_url, image_4_url, image_5_url")
-      .eq("id", vehicleData_db.id)
-      .single()
+    const { data: updatedVehicle, error: fetchError } = await executeQuery(
+      `
+      SELECT id, entry_number, photos, image_url_1, image_url_2, image_url_3, image_url_4, image_url_5
+      FROM vehicles
+      WHERE id = $1
+    `,
+      [vehicleData_db_first.id],
+    )
 
     if (fetchError) {
       console.error("Verification fetch error:", fetchError)
@@ -289,7 +292,7 @@ export async function registerVehicle(formData: FormData) {
 
     console.log("=== REGISTRATION COMPLETED SUCCESSFULLY ===")
 
-    return { success: true, vehicleId: vehicleData_db.id }
+    return { success: true, vehicleId: vehicleData_db_first.id }
   } catch (error) {
     console.error("FATAL ERROR in registration:", error)
     console.error("Error details:", {

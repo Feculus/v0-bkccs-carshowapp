@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 
 export default function RegisterPageClient() {
   const router = useRouter()
@@ -45,19 +45,18 @@ export default function RegisterPageClient() {
 
   const checkRegistrationStatus = async () => {
     try {
-      const supabase = createClient()
-      const { count, error } = await supabase
-        .from("vehicles")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "active")
+      const { data, error } = await executeQuery(`
+        SELECT COUNT(*) as count FROM vehicles WHERE checked_in = true
+      `)
 
       if (error) {
         console.error("Error checking registration count:", error)
         return
       }
 
+      const count = data?.[0]?.count || 0
       setCurrentCount(count)
-      setRegistrationClosed(count !== null && count >= 50)
+      setRegistrationClosed(count >= 50)
     } catch (error) {
       console.error("Error checking registration status:", error)
     } finally {

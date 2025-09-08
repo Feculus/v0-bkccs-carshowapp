@@ -7,9 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CheckCircle, Download, QrCode, Share2 } from "lucide-react"
 import Link from "next/link"
 import { QRCodeSVG } from "qrcode.react"
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 
-const supabase = createClient()
 import type { Vehicle } from "@/lib/types"
 
 export default function RegistrationSuccessPage() {
@@ -26,25 +25,37 @@ export default function RegistrationSuccessPage() {
 
   const loadVehicle = async () => {
     try {
-      const { data, error } = await supabase
-        .from("vehicles")
-        .select("*, category:categories(*)")
-        .eq("id", vehicleId)
-        .single()
+      const { data, error } = await executeQuery(
+        `
+        SELECT v.*, c.name as category_name
+        FROM vehicles v
+        LEFT JOIN categories c ON v.category_id = c.id
+        WHERE v.id = $1
+      `,
+        [vehicleId],
+      )
 
       if (error) throw error
 
-      // Generate QR code URL if not exists
-      if (data && !data.qr_code_url) {
-        const qrCodeUrl = `${window.location.origin}/vehicle/${data.profile_url}`
+      if (data && data.length > 0) {
+        const vehicleData = data[0]
 
-        // Update vehicle with QR code URL
-        await supabase.from("vehicles").update({ qr_code_url: qrCodeUrl }).eq("id", vehicleId)
+        // Generate QR code URL if not exists
+        if (!vehicleData.qr_code_url) {
+          const qrCodeUrl = `${window.location.origin}/vehicle/${vehicleData.id}`
 
-        data.qr_code_url = qrCodeUrl
+          await executeQuery(
+            `
+            UPDATE vehicles SET qr_code = $1 WHERE id = $2
+          `,
+            [qrCodeUrl, vehicleId],
+          )
+
+          vehicleData.qr_code_url = qrCodeUrl
+        }
+
+        setVehicle(vehicleData)
       }
-
-      setVehicle(data)
     } catch (error) {
       console.error("Error loading vehicle:", error)
     } finally {
@@ -390,7 +401,9 @@ export default function RegistrationSuccessPage() {
               <p className="text-xl text-[#3A403D]/80">
                 {vehicle.full_name} • {vehicle.city}, {vehicle.state}
               </p>
-              {vehicle.category && <p className="text-lg text-[#3A403D]/60 mt-2">Category: {vehicle.category.name}</p>}
+              {vehicle.category_name && (
+                <p className="text-lg text-[#3A403D]/60 mt-2">Category: {vehicle.category_name}</p>
+              )}
             </div>
 
             {vehicle.qr_code_url && (

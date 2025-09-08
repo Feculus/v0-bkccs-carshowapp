@@ -9,14 +9,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ArrowLeft, AlertCircle, Check, Lock, Trophy, Calendar, EyeOff } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 import { castVote, getCurrentVote, getVoteCount } from "@/lib/vote-utils"
 import { VotingCountdown } from "@/components/voting-countdown"
 import { useVotingStatus } from "@/hooks/use-voting-status"
 import { getResultsPublicationStatus, checkAndUpdateScheduledPublication } from "@/lib/results-utils"
 import type { Vehicle } from "@/lib/types"
-
-const supabase = createClient()
 
 export default function VotePage() {
   const router = useRouter()
@@ -71,19 +69,20 @@ export default function VotePage() {
       setLoading(true)
       setError(null)
 
-      // Load the vehicle being voted for
-      const { data: vehicleData, error: vehicleError } = await supabase
-        .from("vehicles")
-        .select("*")
-        .eq("id", vehicleId)
-        .neq("status", "archived")
-        .single()
+      const { data: vehicleData, error: vehicleError } = await executeQuery(
+        `
+        SELECT * FROM vehicles 
+        WHERE id = $1 AND checked_in = true
+        LIMIT 1
+      `,
+        [vehicleId],
+      )
 
-      if (vehicleError) {
+      if (vehicleError || !vehicleData || vehicleData.length === 0) {
         console.error("Vehicle error:", vehicleError)
-        throw new Error(`Vehicle not found: ${vehicleError.message}`)
+        throw new Error(`Vehicle not found: ${vehicleError?.message || "No data returned"}`)
       }
-      setVehicle(vehicleData)
+      setVehicle(vehicleData[0])
 
       // Check if user has already voted
       const existingVote = await getCurrentVote()
@@ -91,13 +90,16 @@ export default function VotePage() {
 
       // If they have voted for a different vehicle, load that vehicle's details
       if (existingVote && existingVote.vehicle_id !== Number(vehicleId)) {
-        const { data: votedVehicleData } = await supabase
-          .from("vehicles")
-          .select("*")
-          .eq("id", existingVote.vehicle_id)
-          .single()
+        const { data: votedVehicleData } = await executeQuery(
+          `
+          SELECT * FROM vehicles WHERE id = $1 LIMIT 1
+        `,
+          [existingVote.vehicle_id],
+        )
 
-        setCurrentVotedVehicle(votedVehicleData)
+        if (votedVehicleData && votedVehicleData.length > 0) {
+          setCurrentVotedVehicle(votedVehicleData[0])
+        }
       }
 
       // Load vote count for the current vehicle
@@ -155,11 +157,11 @@ export default function VotePage() {
 
   // Helper function to get primary image URL
   const getPrimaryImageUrl = (vehicle: Vehicle): string => {
-    if (vehicle.image_1_url) return vehicle.image_1_url
+    if (vehicle.image_url_1) return vehicle.image_url_1
     if (vehicle.photos && vehicle.photos.length > 0 && vehicle.photos[0]) {
       return vehicle.photos[0]
     }
-    return `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(vehicle.make + " " + vehicle.model)}`
+    return `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(vehicle.vehicle_make + " " + vehicle.vehicle_model)}`
   }
 
   if (!resultsPublished && !isVotingOpen && votingStatus !== "loading") {
@@ -227,7 +229,7 @@ export default function VotePage() {
       <div className="max-w-4xl mx-auto px-4">
         <div className="mb-8">
           <Button asChild variant="ghost" className="text-[#3A403D] hover:bg-[#3A403D] hover:text-white">
-            <Link href={`/vehicle/${vehicle.profile_url}`}>
+            <Link href={`/vehicle/${vehicle.id}`}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Vehicle
             </Link>
@@ -240,7 +242,7 @@ export default function VotePage() {
             <div className="aspect-video relative overflow-hidden rounded-t-lg">
               <Image
                 src={primaryImageUrl || "/placeholder.svg"}
-                alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+                alt={`${vehicle.vehicle_year} ${vehicle.vehicle_make} ${vehicle.vehicle_model}`}
                 fill
                 className="object-cover"
                 sizes="(max-width: 768px) 100vw, 50vw"
@@ -248,19 +250,16 @@ export default function VotePage() {
             </div>
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <Badge className="bg-[#BF6849] text-white">#{vehicle.entry_number}</Badge>
+                <Badge className="bg-[#BF6849] text-white">#{vehicle.id}</Badge>
                 <Badge variant="outline" className="border-[#BF6849] text-[#BF6849]">
                   <Trophy className="h-3 w-3 mr-1" />
                   Best in Show
                 </Badge>
               </div>
               <h2 className="text-2xl font-bold text-[#3A403D] mb-2">
-                {vehicle.year} {vehicle.make} {vehicle.model}
+                {vehicle.vehicle_year} {vehicle.vehicle_make} {vehicle.vehicle_model}
               </h2>
-              <p className="text-[#3A403D]/80 mb-4">by {vehicle.full_name}</p>
-              <p className="text-[#3A403D]/60 mb-4">
-                {vehicle.city}, {vehicle.state}
-              </p>
+              <p className="text-[#3A403D]/80 mb-4">by {vehicle.owner_name}</p>
               <div className="text-sm text-[#3A403D]/60">
                 Current votes: <span className="font-bold text-[#BF6849]">{voteCount}</span>
                 {/* Added real-time update indicator */}
@@ -326,8 +325,8 @@ export default function VotePage() {
                   <AlertDescription>
                     <strong>Your Best in Show vote:</strong>
                     <br />
-                    {currentVotedVehicle.year} {currentVotedVehicle.make} {currentVotedVehicle.model} by{" "}
-                    {currentVotedVehicle.full_name}
+                    {currentVotedVehicle.vehicle_year} {currentVotedVehicle.vehicle_make}{" "}
+                    {currentVotedVehicle.vehicle_model} by {currentVotedVehicle.owner_name}
                     <br />
                     <br />
                     <strong>You cannot change your vote.</strong> Each voter can only vote once for Best in Show.

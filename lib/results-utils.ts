@@ -1,4 +1,4 @@
-import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 
 export interface ResultsPublicationStatus {
   arePublished: boolean
@@ -8,26 +8,15 @@ export interface ResultsPublicationStatus {
 }
 
 export async function getResultsPublicationStatus(): Promise<ResultsPublicationStatus> {
-  if (!isSupabaseConfigured()) {
-    console.log("[v0] Supabase not configured, returning default results status")
-    return {
-      arePublished: false,
-      publishedAt: null,
-      scheduledFor: null,
-      isScheduled: false,
-    }
-  }
-
-  const supabase = createClient()
-
   try {
-    const { data: schedule, error } = await supabase
-      .from("voting_schedule")
-      .select("results_are_published, results_published_at")
-      .eq("is_active", true)
-      .single()
+    const { data: schedule, error } = await executeQuery(`
+      SELECT results_published, results_publish_time
+      FROM voting_schedule
+      ORDER BY created_at DESC
+      LIMIT 1
+    `)
 
-    if (error || !schedule) {
+    if (error || !schedule || schedule.length === 0) {
       // Default to hidden if no schedule found
       return {
         arePublished: false,
@@ -37,20 +26,21 @@ export async function getResultsPublicationStatus(): Promise<ResultsPublicationS
       }
     }
 
+    const scheduleData = schedule[0]
     const now = new Date()
-    const publishedAt = schedule.results_published_at ? new Date(schedule.results_published_at) : null
+    const publishedAt = scheduleData.results_publish_time ? new Date(scheduleData.results_publish_time) : null
 
     // Check if results should be automatically published based on scheduled time
     const shouldBePublished = publishedAt && now >= publishedAt
-    const actuallyPublished = schedule.results_are_published || shouldBePublished
+    const actuallyPublished = scheduleData.results_published || shouldBePublished
 
     return {
       arePublished: actuallyPublished,
       publishedAt:
-        schedule.results_are_published && schedule.results_published_at ? schedule.results_published_at : null,
+        scheduleData.results_published && scheduleData.results_publish_time ? scheduleData.results_publish_time : null,
       scheduledFor:
-        !schedule.results_are_published && schedule.results_published_at ? schedule.results_published_at : null,
-      isScheduled: !schedule.results_are_published && !!schedule.results_published_at,
+        !scheduleData.results_published && scheduleData.results_publish_time ? scheduleData.results_publish_time : null,
+      isScheduled: !scheduleData.results_published && !!scheduleData.results_publish_time,
     }
   } catch (error) {
     console.error("Error checking results publication status:", error)
@@ -65,30 +55,27 @@ export async function getResultsPublicationStatus(): Promise<ResultsPublicationS
 }
 
 export async function checkAndUpdateScheduledPublication(): Promise<void> {
-  if (!isSupabaseConfigured()) {
-    console.log("[v0] Supabase not configured, skipping scheduled publication check")
-    return
-  }
-
-  const supabase = createClient()
-
   try {
-    const { data: schedule, error } = await supabase.from("voting_schedule").select("*").eq("is_active", true).single()
+    const { data: schedule, error } = await executeQuery(`
+      SELECT * FROM voting_schedule ORDER BY created_at DESC LIMIT 1
+    `)
 
-    if (error || !schedule) return
+    if (error || !schedule || schedule.length === 0) return
 
+    const scheduleData = schedule[0]
     const now = new Date()
-    const publishedAt = schedule.results_published_at ? new Date(schedule.results_published_at) : null
+    const publishedAt = scheduleData.results_publish_time ? new Date(scheduleData.results_publish_time) : null
 
     // If results are scheduled but not yet published, and the time has passed
-    if (!schedule.results_are_published && publishedAt && now >= publishedAt) {
-      await supabase
-        .from("voting_schedule")
-        .update({
-          results_are_published: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", schedule.id)
+    if (!scheduleData.results_published && publishedAt && now >= publishedAt) {
+      await executeQuery(
+        `
+        UPDATE voting_schedule
+        SET results_published = true, updated_at = NOW()
+        WHERE id = $1
+      `,
+        [scheduleData.id],
+      )
     }
   } catch (error) {
     console.error("Error updating scheduled publication:", error)
