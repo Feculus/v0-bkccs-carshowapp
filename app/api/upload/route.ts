@@ -7,6 +7,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   console.log("=== UPLOAD API DEBUG ===")
   console.log("Upload API called with filename:", filename)
+  console.log("Environment check:")
+  console.log("- BLOB_READ_WRITE_TOKEN exists:", !!process.env.BLOB_READ_WRITE_TOKEN)
+  console.log("- BLOB_READ_WRITE_TOKEN length:", process.env.BLOB_READ_WRITE_TOKEN?.length || 0)
+  console.log(
+    "- Available env vars starting with BLOB:",
+    Object.keys(process.env).filter((key) => key.startsWith("BLOB")),
+  )
 
   if (!filename) {
     console.error("No filename provided")
@@ -20,9 +27,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid filename format" }, { status: 400 })
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN
+  if (!blobToken) {
     console.error("BLOB_READ_WRITE_TOKEN is not set")
-    return NextResponse.json({ error: "Storage not configured" }, { status: 500 })
+    console.error("Available environment variables:", Object.keys(process.env).sort())
+    return NextResponse.json(
+      {
+        error: "Storage not configured",
+        details: "BLOB_READ_WRITE_TOKEN environment variable is missing",
+      },
+      { status: 500 },
+    )
   }
 
   try {
@@ -56,7 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const blob = await put(`vehicle-photos/${sanitizedFilename}`, fileBlob, {
       access: "public",
       addRandomSuffix: true, // Enable random suffix to prevent filename conflicts
-      token: process.env.BLOB_READ_WRITE_TOKEN,
+      token: blobToken,
     })
 
     console.log(`Upload successful:`, {
@@ -73,7 +88,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     })
   } catch (error) {
     console.error("Upload error:", error)
+    console.error("Error details:", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      tokenAvailable: !!blobToken,
+      tokenLength: blobToken?.length || 0,
+    })
 
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "Upload failed",
+        details: error instanceof Error ? error.message : "Unknown error occurred",
+      },
+      { status: 500 },
+    )
   }
 }
