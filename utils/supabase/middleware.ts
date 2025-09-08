@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { type NextRequest, NextResponse } from "next/server"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co"
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key"
 
 export const updateSession = async (request: NextRequest) => {
   console.log("[v0] Middleware: Processing request for", request.nextUrl.pathname)
@@ -14,8 +14,13 @@ export const updateSession = async (request: NextRequest) => {
     },
   })
 
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("Missing Supabase environment variables")
+  if (
+    !supabaseUrl ||
+    !supabaseKey ||
+    supabaseUrl === "https://placeholder.supabase.co" ||
+    supabaseKey === "placeholder-key"
+  ) {
+    console.error("Missing or invalid Supabase environment variables")
     return supabaseResponse
   }
 

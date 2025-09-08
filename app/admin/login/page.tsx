@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,8 +11,6 @@ import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff } from "lucide-react"
 
-const supabase = createClient()
-
 export default function AdminLoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
@@ -20,14 +18,38 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [supabaseConfigured, setSupabaseConfigured] = useState(true)
+
+  useEffect(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (
+      !supabaseUrl ||
+      !supabaseKey ||
+      supabaseUrl === "https://placeholder.supabase.co" ||
+      supabaseKey === "placeholder-key"
+    ) {
+      setSupabaseConfigured(false)
+      setError("Supabase is not configured. Please set up your environment variables.")
+    }
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!supabaseConfigured) {
+      setError("Supabase is not configured. Please contact your administrator.")
+      return
+    }
+
     setLoading(true)
     setError("")
 
     try {
       console.log("[v0] Starting admin login process...")
+
+      const supabase = createClient()
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -98,6 +120,7 @@ export default function AdminLoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="border-[#3A403D]/20 focus:border-[#BF6849]"
                   placeholder="admin@autoshow.com"
+                  disabled={!supabaseConfigured}
                 />
               </div>
 
@@ -111,19 +134,25 @@ export default function AdminLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="border-[#3A403D]/20 focus:border-[#BF6849] pr-10"
+                    disabled={!supabaseConfigured}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#3A403D]/60 hover:text-[#3A403D] transition-colors"
+                    disabled={!supabaseConfigured}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
-              <Button type="submit" disabled={loading} className="w-full bg-[#BF6849] hover:bg-[#BF6849]/90 text-white">
-                {loading ? "Signing in..." : "Sign In"}
+              <Button
+                type="submit"
+                disabled={loading || !supabaseConfigured}
+                className="w-full bg-[#BF6849] hover:bg-[#BF6849]/90 text-white disabled:opacity-50"
+              >
+                {loading ? "Signing in..." : supabaseConfigured ? "Sign In" : "Configuration Required"}
               </Button>
             </form>
           </CardContent>

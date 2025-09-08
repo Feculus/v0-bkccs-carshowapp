@@ -9,17 +9,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    serverComponentsExternalPackages: ['@vercel/blob'],
-  },
+  serverExternalPackages: ['@vercel/blob'],
   serverRuntimeConfig: {
     maxFileSize: '30mb',
-  },
-  // Configure API routes for larger payloads
-  api: {
-    bodyParser: {
-      sizeLimit: '30mb',
-    },
   },
 }
 
