@@ -43,7 +43,7 @@ export default function HomePage() {
         SELECT v.*, c.name as category_name
         FROM vehicles v
         LEFT JOIN categories c ON v.category_id = c.id
-        WHERE v.status != 'archived'
+        WHERE v.approved = true
         ORDER BY v.created_at DESC
         LIMIT 4
       `)
@@ -68,7 +68,7 @@ export default function HomePage() {
         setFeaturedVehicles(transformedData)
         console.log(
           "[v0] Featured vehicles set:",
-          transformedData.map((v) => ({ id: v.id, make: v.make, model: v.model, status: v.status })),
+          transformedData.map((v) => ({ id: v.id, make: v.make, model: v.model, approved: v.approved })),
         )
       } else {
         console.log("[v0] No valid data received or data is not an array:", data)

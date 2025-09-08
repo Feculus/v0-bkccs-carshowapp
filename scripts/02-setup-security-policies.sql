@@ -43,7 +43,7 @@ CREATE POLICY "Admins can update any vehicle" ON vehicles
 CREATE POLICY "Public can view votes" ON votes
     FOR SELECT USING (true);
 
--- Allow public insert for voting (with email verification)
+-- Allow public insert for voting (with basic validation)
 CREATE POLICY "Public can vote" ON votes
     FOR INSERT WITH CHECK (
         voter_email IS NOT NULL 
@@ -51,15 +51,7 @@ CREATE POLICY "Public can vote" ON votes
         AND vehicle_id IS NOT NULL
     );
 
--- Prevent duplicate votes (handled at application level, but extra protection)
-CREATE POLICY "Prevent duplicate votes" ON votes
-    FOR INSERT WITH CHECK (
-        NOT EXISTS (
-            SELECT 1 FROM votes 
-            WHERE voter_email = NEW.voter_email 
-            AND category = NEW.category
-        )
-    );
+-- Removed the problematic NEW reference policy - duplicate prevention handled at application level
 
 -- CATEGORIES TABLE POLICIES
 -- Allow public read access to categories
