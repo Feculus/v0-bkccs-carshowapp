@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { createClient, isSupabaseConfigured } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 import type { Vehicle } from "@/lib/types"
 import { Car, Users, Trophy, EyeOff, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,20 +14,14 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [resultsPublished, setResultsPublished] = useState(false)
   const [publicationStatus, setPublicationStatus] = useState<any>(null)
-  const [supabaseConfigured, setSupabaseConfigured] = useState(false)
+  const [databaseConfigured, setDatabaseConfigured] = useState(true)
   const glideRef = useRef<HTMLDivElement>(null)
   const glideInstance = useRef<any>(null)
 
   useEffect(() => {
-    setSupabaseConfigured(isSupabaseConfigured())
-
-    if (isSupabaseConfigured()) {
-      checkResultsStatus()
-      const interval = setInterval(checkResultsStatus, 60000)
-      return () => clearInterval(interval)
-    } else {
-      console.log("[v0] Supabase not configured, skipping results status check")
-    }
+    checkResultsStatus()
+    const interval = setInterval(checkResultsStatus, 60000)
+    return () => clearInterval(interval)
   }, [])
 
   const checkResultsStatus = async () => {
@@ -45,41 +39,37 @@ export default function HomePage() {
     try {
       console.log("[v0] Loading featured vehicles for homepage...")
 
-      if (!isSupabaseConfigured()) {
-        console.log("[v0] Supabase not configured, using mock data")
-        setFeaturedVehicles([])
-        setLoading(false)
-        return
-      }
+      const data = await executeQuery(`
+        SELECT v.*, c.name as category_name
+        FROM vehicles v
+        LEFT JOIN categories c ON v.category_id = c.id
+        WHERE v.status != 'archived'
+        ORDER BY v.created_at DESC
+        LIMIT 4
+      `)
 
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("vehicles")
-        .select(`
-          *,
-          category:categories(*)
-        `)
-        .neq("status", "archived")
-        .order("created_at", { ascending: false })
-        .limit(4)
-
-      console.log("[v0] Homepage vehicles query result:", { data, error })
+      console.log("[v0] Homepage vehicles query result:", data)
       console.log("[v0] Featured vehicles count:", data?.length || 0)
 
-      if (error) {
-        console.error("[v0] Homepage vehicles query error:", error)
-        return
-      }
-
       if (data) {
-        setFeaturedVehicles(data)
+        // Transform data to match expected structure
+        const transformedData = data.map((vehicle: any) => ({
+          ...vehicle,
+          make: vehicle.vehicle_make,
+          model: vehicle.vehicle_model,
+          year: vehicle.vehicle_year,
+          category: vehicle.category_name ? { name: vehicle.category_name } : null,
+        }))
+
+        setFeaturedVehicles(transformedData)
         console.log(
           "[v0] Featured vehicles set:",
-          data.map((v) => ({ id: v.id, make: v.make, model: v.model, status: v.status })),
+          transformedData.map((v) => ({ id: v.id, make: v.make, model: v.model, status: v.status })),
         )
       }
     } catch (error) {
       console.error("[v0] Error loading featured vehicles:", error)
+      setDatabaseConfigured(false)
     } finally {
       setLoading(false)
     }
@@ -232,8 +222,8 @@ export default function HomePage() {
             <p className="text-[#3A403D]/60">
               {loading
                 ? "Loading registered vehicles..."
-                : !supabaseConfigured
-                  ? "Database connection not configured. Please set up Supabase integration."
+                : !databaseConfigured
+                  ? "Database connection not configured. Please set up Neon integration."
                   : featuredVehicles.length > 0
                     ? resultsPublished
                       ? "Click on photos to learn more about each vehicle and cast your vote."
@@ -242,14 +232,14 @@ export default function HomePage() {
             </p>
           </div>
 
-          {!supabaseConfigured ? (
+          {!databaseConfigured ? (
             <div className="text-center py-12">
               <div className="w-24 h-24 bg-[#BF6849]/10 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Car className="h-12 w-12 text-[#BF6849]/60" />
               </div>
               <h3 className="text-xl font-semibold text-[#3A403D] mb-2">Database Configuration Required</h3>
               <p className="text-[#3A403D]/60 mb-6">
-                Please configure your Supabase integration to display registered vehicles.
+                Please configure your Neon database integration to display registered vehicles.
               </p>
             </div>
           ) : loading ? (

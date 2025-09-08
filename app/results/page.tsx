@@ -8,12 +8,10 @@ import { Progress } from "@/components/ui/progress"
 import { Trophy, Medal, Award, Heart, ArrowLeft, Crown, EyeOff, Clock } from "lucide-react"
 import Link from "next/link"
 import type { Vehicle } from "@/lib/types"
-import { createClient } from "@/utils/supabase/client"
+import { executeQuery } from "@/utils/neon/client"
 import Image from "next/image"
 import { getPublishedAdminAwards, type AdminAward } from "@/lib/admin-awards"
 import { getResultsPublicationStatus, checkAndUpdateScheduledPublication } from "@/lib/results-utils"
-
-const supabase = createClient()
 
 interface VehicleWithVotes extends Vehicle {
   vote_count: number
@@ -30,38 +28,31 @@ export default function ResultsPage() {
 
   const loadResults = useCallback(async () => {
     try {
-      const { data: vehiclesData } = await supabase
-        .from("vehicles")
-        .select("*")
-        .neq("status", "archived")
-        .order("created_at", { ascending: false })
+      const vehiclesData = await executeQuery(`
+        SELECT v.*, COUNT(vt.id) as vote_count
+        FROM vehicles v
+        LEFT JOIN votes vt ON v.id = vt.vehicle_id
+        WHERE v.status != 'archived'
+        GROUP BY v.id
+        ORDER BY v.created_at DESC
+      `)
 
-      if (!vehiclesData) return
-
-      // Get vote counts for each vehicle
-      const vehiclesWithVotes: VehicleWithVotes[] = []
-      let totalVoteCount = 0
-
-      for (const vehicle of vehiclesData) {
-        const { count } = await supabase
-          .from("votes")
-          .select("*", { count: "exact", head: true })
-          .eq("vehicle_id", vehicle.id)
-
-        const voteCount = count || 0
-        totalVoteCount += voteCount
-
-        vehiclesWithVotes.push({
-          ...vehicle,
-          vote_count: voteCount,
-          vote_percentage: 0, // Will calculate after we have total
-        })
+      if (!vehiclesData || vehiclesData.length === 0) {
+        setVehicles([])
+        setTotalVotes(0)
+        return
       }
 
-      // Calculate percentages
-      const vehiclesWithPercentages = vehiclesWithVotes.map((vehicle) => ({
+      // Calculate total votes and percentages
+      const totalVoteCount = vehiclesData.reduce(
+        (sum: number, vehicle: any) => sum + Number.parseInt(vehicle.vote_count || 0),
+        0,
+      )
+
+      const vehiclesWithPercentages: VehicleWithVotes[] = vehiclesData.map((vehicle: any) => ({
         ...vehicle,
-        vote_percentage: totalVoteCount > 0 ? (vehicle.vote_count / totalVoteCount) * 100 : 0,
+        vote_count: Number.parseInt(vehicle.vote_count || 0),
+        vote_percentage: totalVoteCount > 0 ? (Number.parseInt(vehicle.vote_count || 0) / totalVoteCount) * 100 : 0,
       }))
 
       // Sort by vote count (highest first)
@@ -70,7 +61,7 @@ export default function ResultsPage() {
       setVehicles(vehiclesWithPercentages)
       setTotalVotes(totalVoteCount)
 
-      const publishedAwards = await getPublishedAdminAwards(supabase)
+      const publishedAwards = await getPublishedAdminAwards()
       setAdminAwards(publishedAwards)
     } catch (error) {
       console.error("Error loading results:", error)

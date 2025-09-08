@@ -45,16 +45,11 @@ export default function RegisterPageClient() {
 
   const checkRegistrationStatus = async () => {
     try {
-      const { data, error } = await executeQuery(`
-        SELECT COUNT(*) as count FROM vehicles WHERE checked_in = true
+      const data = await executeQuery(`
+        SELECT COUNT(*) as count FROM vehicles WHERE status != 'archived'
       `)
 
-      if (error) {
-        console.error("Error checking registration count:", error)
-        return
-      }
-
-      const count = data?.[0]?.count || 0
+      const count = Number.parseInt(data?.[0]?.count || 0)
       setCurrentCount(count)
       setRegistrationClosed(count >= 50)
     } catch (error) {
